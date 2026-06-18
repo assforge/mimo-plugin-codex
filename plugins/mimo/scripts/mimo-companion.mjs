@@ -199,19 +199,35 @@ function listJobs() {
 }
 
 function runMimo(args, opts = {}) {
-  return new Promise((resolve, reject) => {
+  if (opts.background) {
+    // Background: capture stdout/stderr to a log file, wait for close to
+    // resolve so the caller knows when the process actually finishes.
+    const logFile = path.join(JOB_DIR, `${opts.jobId ?? "bg"}-mimo.log`);
+    ensureJobDir();
+    const logFd = fs.openSync(logFile, "a");
     const child = spawn("mimo", args, {
-      stdio: opts.background ? "ignore" : "pipe",
-      detached: opts.background,
+      stdio: ["ignore", logFd, logFd],
+      detached: true,
       ...opts,
     });
+    child.unref();
+    return new Promise((resolve) => {
+      child.on("close", (code) => {
+        fs.closeSync(logFd);
+        let output = "";
+        try { output = fs.readFileSync(logFile, "utf-8"); } catch {}
+        resolve({ background: true, pid: child.pid, code, output, logFile });
+      });
+      child.on("error", () => {
+        fs.closeSync(logFd);
+        resolve({ background: true, pid: child.pid, code: 1, output: "", logFile });
+      });
+    });
+  }
 
-    if (opts.background) {
-      child.unref();
-      resolve({ background: true, pid: child.pid });
-      return;
-    }
-
+  // Foreground: capture to memory.
+  return new Promise((resolve, reject) => {
+    const child = spawn("mimo", args, { stdio: "pipe", ...opts });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
@@ -295,18 +311,23 @@ async function cmdReview(argv) {
   if (background) {
     writeJobFile(jobId, job);
     const mimoArgs = ["run", "--dir", process.cwd(), prompt];
-    runMimo(mimoArgs, { background: true }).then(({ pid }) => {
+    runMimo(mimoArgs, { background: true, jobId }).then(({ pid, code, output, logFile }) => {
       job.pid = pid;
-      job.status = "completed";
+      job.logFile = logFile;
+      job.status = code === 0 ? "completed" : "failed";
       job.completedAt = new Date().toISOString();
+      if (output) job.output = output;
+      if (code !== 0) job.error = `mimo exited with code ${code}`;
       writeJobFile(jobId, job);
     }).catch((err) => {
       job.status = "failed";
       job.error = err.message;
+      job.completedAt = new Date().toISOString();
       writeJobFile(jobId, job);
     });
     console.log(`📋 Review job started: ${jobId}`);
     console.log(`   Use /mimo:status ${jobId} to check progress`);
+    console.log(`   Use /mimo:result ${jobId} to see output when done`);
   } else {
     console.log("🔍 Running MiMo review...");
     try {
@@ -353,19 +374,25 @@ async function cmdRescue(argv) {
   mimoArgs.push(taskText);
 
   if (background) {
-    runMimo(mimoArgs, { background: true }).then(({ pid }) => {
+    runMimo(mimoArgs, { background: true, jobId }).then(({ pid, code, output, logFile }) => {
       job.pid = pid;
-      job.status = "completed";
+      job.logFile = logFile;
+      job.status = code === 0 ? "completed" : "failed";
       job.completedAt = new Date().toISOString();
+      if (output) job.output = output;
+      if (code !== 0) job.error = `mimo exited with code ${code}`;
       writeJobFile(jobId, job);
     }).catch((err) => {
       job.status = "failed";
       job.error = err.message;
+      job.completedAt = new Date().toISOString();
       writeJobFile(jobId, job);
     });
+    // Report "running" now; the close handler above will flip to completed/failed.
     console.log(`🚀 Rescue job started: ${jobId}`);
     console.log(`   Task: ${taskText}`);
     console.log(`   Use /mimo:status ${jobId} to check progress`);
+    console.log(`   Use /mimo:result ${jobId} to see output when done`);
   } else {
     console.log("🚀 Running MiMo rescue...");
     try {
