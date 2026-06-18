@@ -18,6 +18,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -98,33 +99,45 @@ function getMimoAuthStatus(cwd) {
     };
   }
 
-  const providerStatus = binaryAvailable("mimo", ["providers", "--json"], { cwd });
-  if (!providerStatus.available) {
+  // Primary check: read the auth config file directly.
+  // MiMo stores credentials at ~/.local/share/mimocode/auth.json.
+  try {
+    const authPath = path.join(os.homedir(), ".local", "share", "mimocode", "auth.json");
+    if (fs.existsSync(authPath)) {
+      const authData = JSON.parse(fs.readFileSync(authPath, "utf-8"));
+      const hasAuth = Object.keys(authData).length > 0 &&
+        Object.values(authData).some(v => v && (v.key || v.token || v.apiKey));
+      if (hasAuth) {
+        const providers = Object.keys(authData).join(", ");
+        return {
+          available: true,
+          loggedIn: true,
+          detail: `authenticated (${providers})`,
+          source: "auth.json"
+        };
+      }
+    }
+  } catch {}
+
+  // Fallback: try mimo providers list (text output).
+  const providerStatus = binaryAvailable("mimo", ["providers", "list"], { cwd });
+  if (providerStatus.available) {
+    const hasCredentials = providerStatus.stdout.includes("credentials") ||
+      providerStatus.stdout.includes("●");
     return {
       available: true,
-      loggedIn: false,
-      detail: "providers command unavailable",
+      loggedIn: hasCredentials,
+      detail: hasCredentials ? "authenticated" : "not authenticated",
       source: "providers"
     };
   }
 
-  try {
-    const providers = JSON.parse(providerStatus.stdout);
-    const hasAuth = Array.isArray(providers) && providers.some(p => p.apiKey || p.token || p.loggedIn);
-    return {
-      available: true,
-      loggedIn: hasAuth,
-      detail: hasAuth ? "authenticated" : "not authenticated",
-      source: "providers"
-    };
-  } catch {
-    return {
-      available: true,
-      loggedIn: false,
-      detail: "could not parse providers output",
-      source: "providers"
-    };
-  }
+  return {
+    available: true,
+    loggedIn: false,
+    detail: "no credentials found",
+    source: "providers"
+  };
 }
 
 function renderSetupReport(report) {
@@ -198,6 +211,8 @@ function listJobs() {
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
+const SAFE_CWD = "/tmp";
+
 function runMimo(args, opts = {}) {
   if (opts.background) {
     // Background: capture stdout/stderr to a log file, wait for close to
@@ -218,6 +233,25 @@ function runMimo(args, opts = {}) {
         try { fs.closeSync(logFd); } catch {}
         let output = "";
         try { output = fs.readFileSync(logFile, "utf-8"); } catch {}
+        // If mimo failed with EACCES (e.g. read-only .git in parent dir),
+        // retry from a safe directory so mimo's git scan doesn't block us.
+        if (code !== 0 && output.includes("EACCES")) {
+          // Clear the log file for the retry attempt.
+          fs.writeFileSync(logFile, "");
+          const logFd2 = fs.openSync(logFile, "a");
+          const safeArgs = args.map(a => a === opts.cwd ? SAFE_CWD : a);
+          const child2 = spawn("mimo", safeArgs, {
+            stdio: ["ignore", logFd2, logFd2],
+            cwd: SAFE_CWD,
+          });
+          child2.on("close", (code2) => {
+            try { fs.closeSync(logFd2); } catch {}
+            let output2 = "";
+            try { output2 = fs.readFileSync(logFile, "utf-8"); } catch {}
+            resolve({ background: true, pid: child2.pid, code: code2, output: output2, logFile });
+          });
+          return;
+        }
         resolve({ background: true, pid: child.pid, code, output, logFile });
       });
       child.on("error", () => {
@@ -236,6 +270,20 @@ function runMimo(args, opts = {}) {
     child.stderr.on("data", (d) => (stderr += d));
     child.on("close", (code) => {
       if (code === 0) resolve({ stdout, stderr, code });
+      // If mimo failed with EACCES (e.g. read-only .git in parent dir),
+      // retry from a safe directory so mimo's git scan doesn't block us.
+      else if (stderr.includes("EACCES")) {
+        const safeArgs = args.map(a => a === opts.cwd ? SAFE_CWD : a);
+        const child2 = spawn("mimo", safeArgs, { stdio: "pipe", cwd: SAFE_CWD });
+        let stdout2 = "";
+        let stderr2 = "";
+        child2.stdout.on("data", (d) => (stdout2 += d));
+        child2.stderr.on("data", (d) => (stderr2 += d));
+        child2.on("close", (code2) => {
+          if (code2 === 0) resolve({ stdout: stdout2, stderr: stderr2, code: code2 });
+          else reject(new Error(`mimo exited with code ${code2}\n${stderr2}`));
+        });
+      }
       else reject(new Error(`mimo exited with code ${code}\n${stderr}`));
     });
   });
@@ -371,12 +419,13 @@ async function cmdRescue(argv) {
 
   writeJobFile(jobId, job);
 
-  const mimoArgs = ["run", "--dir", process.cwd()];
+  const cwd = process.cwd();
+  const mimoArgs = ["run", "--dir", cwd];
   if (model) mimoArgs.push("--model", model);
   mimoArgs.push(taskText);
 
   if (background) {
-    runMimo(mimoArgs, { background: true, jobId }).then(({ pid, code, output, logFile }) => {
+    runMimo(mimoArgs, { background: true, jobId, cwd }).then(({ pid, code, output, logFile }) => {
       job.pid = pid;
       job.logFile = logFile;
       job.status = code === 0 ? "completed" : "failed";
@@ -398,7 +447,7 @@ async function cmdRescue(argv) {
   } else {
     console.log("🚀 Running MiMo rescue...");
     try {
-      const result = await runMimo(mimoArgs);
+      const result = await runMimo(mimoArgs, { cwd });
       job.status = "completed";
       job.completedAt = new Date().toISOString();
       job.output = result.stdout;
