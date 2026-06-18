@@ -7,10 +7,16 @@
  *   - task delegation (foreground/background)
  *   - code review
  *   - status/result/cancel for background jobs
- *   - setup check
+ *   - setup check with self-healing
+ *
+ * Validation model follows Codex plugin pattern:
+ *   - binaryAvailable(): check if CLI binary exists and responds
+ *   - getMimoAvailability(): check if mimo CLI is functional
+ *   - getMimoAuthStatus(): check if mimo is authenticated
+ *   - Entry-point guards on every command
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -19,7 +25,151 @@ import { fileURLToPath } from "node:url";
 const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const JOB_DIR = path.join(ROOT_DIR, ".jobs");
 
-// --- Helpers ---
+// --- Process helpers (ported from Codex process.mjs) ---
+
+function runCommand(command, args = [], options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd,
+    env: options.env,
+    encoding: "utf8",
+    input: options.input,
+    maxBuffer: options.maxBuffer,
+    stdio: options.stdio ?? "pipe",
+    shell: process.platform === "win32" ? (process.env.SHELL || true) : false,
+    windowsHide: true
+  });
+
+  return {
+    command,
+    args,
+    status: result.status ?? 0,
+    signal: result.signal ?? null,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: result.error ?? null
+  };
+}
+
+function binaryAvailable(command, versionArgs = ["--version"], options = {}) {
+  const result = runCommand(command, versionArgs, options);
+  if (result.error && result.error.code === "ENOENT") {
+    return { available: false, detail: "not found" };
+  }
+  if (result.error) {
+    return { available: false, detail: result.error.message };
+  }
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`;
+    return { available: false, detail };
+  }
+  return { available: true, detail: result.stdout.trim() || result.stderr.trim() || "ok" };
+}
+
+// --- Mimo availability checks (ported from Codex codex.mjs) ---
+
+function getMimoAvailability(cwd) {
+  const versionStatus = binaryAvailable("mimo", ["--version"], { cwd });
+  if (!versionStatus.available) {
+    return versionStatus;
+  }
+
+  const runHelpStatus = binaryAvailable("mimo", ["run", "--help"], { cwd });
+  if (!runHelpStatus.available) {
+    return {
+      available: false,
+      detail: `${versionStatus.detail}; run command unavailable: ${runHelpStatus.detail}`
+    };
+  }
+
+  return {
+    available: true,
+    detail: `${versionStatus.detail}; runtime available`
+  };
+}
+
+function getMimoAuthStatus(cwd) {
+  const availability = getMimoAvailability(cwd);
+  if (!availability.available) {
+    return {
+      available: false,
+      loggedIn: false,
+      detail: availability.detail,
+      source: "availability"
+    };
+  }
+
+  const providerStatus = binaryAvailable("mimo", ["providers", "--json"], { cwd });
+  if (!providerStatus.available) {
+    return {
+      available: true,
+      loggedIn: false,
+      detail: "providers command unavailable",
+      source: "providers"
+    };
+  }
+
+  try {
+    const providers = JSON.parse(providerStatus.stdout);
+    const hasAuth = Array.isArray(providers) && providers.some(p => p.apiKey || p.token || p.loggedIn);
+    return {
+      available: true,
+      loggedIn: hasAuth,
+      detail: hasAuth ? "authenticated" : "not authenticated",
+      source: "providers"
+    };
+  } catch {
+    return {
+      available: true,
+      loggedIn: false,
+      detail: "could not parse providers output",
+      source: "providers"
+    };
+  }
+}
+
+function renderSetupReport(report) {
+  const lines = [
+    "# MiMo Setup",
+    "",
+    `Status: ${report.ready ? "ready" : "needs attention"}`,
+    "",
+    "Checks:",
+    `- node: ${report.node.detail}`,
+    `- mimo: ${report.mimo.detail}`,
+    `- auth: ${report.auth.detail}`,
+    ""
+  ];
+
+  if (report.actionsTaken.length > 0) {
+    lines.push("Actions taken:");
+    for (const action of report.actionsTaken) {
+      lines.push(`- ${action}`);
+    }
+    lines.push("");
+  }
+
+  if (report.recommendations.length > 0) {
+    lines.push("Recommendations:");
+    for (const rec of report.recommendations) {
+      lines.push(`- ${rec}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function ensureAvailabilityOrExit(cwd) {
+  const availability = getMimoAvailability(cwd);
+  if (!availability.available) {
+    console.error(`❌ MiMo CLI not available: ${availability.detail}`);
+    console.error("Run `mimo setup` or install with: npm install -g mimocode");
+    process.exit(1);
+  }
+  return availability;
+}
+
+// --- Job helpers ---
 
 function ensureJobDir() {
   if (!fs.existsSync(JOB_DIR)) fs.mkdirSync(JOB_DIR, { recursive: true });
@@ -46,14 +196,6 @@ function listJobs() {
     .filter(f => f.endsWith(".json"))
     .map(f => JSON.parse(fs.readFileSync(path.join(JOB_DIR, f), "utf-8")))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-function checkMimoAvailable() {
-  return new Promise((resolve) => {
-    const child = spawn("mimo", ["--version"], { stdio: "pipe" });
-    child.on("close", (code) => resolve(code === 0));
-    child.on("error", () => resolve(false));
-  });
 }
 
 function runMimo(args, opts = {}) {
@@ -83,31 +225,56 @@ function runMimo(args, opts = {}) {
 
 // --- Commands ---
 
-async function cmdSetup() {
-  const available = await checkMimoAvailable();
-  if (!available) {
-    console.log("❌ MiMo CLI not found. Install with:");
-    console.log("   npm install -g mimocode");
-    console.log("   or: curl -fsSL https://mimo.xiaomi.com/install.sh | sh");
-    process.exit(1);
+async function cmdSetup(argv) {
+  const asJson = argv.includes("--json");
+  const cwd = process.cwd();
+
+  const nodeStatus = binaryAvailable("node", ["--version"]);
+  const npmStatus = binaryAvailable("npm", ["--version"]);
+  const mimoAvailability = getMimoAvailability(cwd);
+  const mimoAuth = getMimoAuthStatus(cwd);
+
+  const actionsTaken = [];
+  const recommendations = [];
+
+  if (!mimoAvailability.available && npmStatus.available) {
+    if (!asJson) {
+      console.log("MiMo CLI not found. npm is available for installation.");
+      console.log("To install, run: npm install -g mimocode");
+      recommendations.push("Install MiMo CLI: npm install -g mimocode");
+    }
   }
 
-  const result = await runMimo(["run", "--help"]);
-  console.log("✅ MiMo CLI is available");
-  console.log("");
-  console.log("Version check:");
-  await runMimo(["--version"]).then(r => console.log(r.stdout.trim()));
-  console.log("");
-  console.log("MiMo plugin is ready. Use /mimo:rescue to delegate tasks.");
+  if (mimoAvailability.available && !mimoAuth.loggedIn) {
+    recommendations.push("Run `mimo providers` to configure authentication");
+  }
+
+  const report = {
+    ready: mimoAvailability.available && mimoAuth.loggedIn,
+    node: nodeStatus,
+    npm: npmStatus,
+    mimo: mimoAvailability,
+    auth: mimoAuth,
+    actionsTaken,
+    recommendations
+  };
+
+  if (asJson) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log(renderSetupReport(report));
+  }
 }
 
-async function cmdReview(args) {
+async function cmdReview(argv) {
+  ensureAvailabilityOrExit(process.cwd());
+
+  const args = argv;
   const background = args.includes("--background");
   const wait = args.includes("--wait");
   const baseIdx = args.indexOf("--base");
   const base = baseIdx >= 0 ? args[baseIdx + 1] : null;
 
-  // Build review prompt
   let prompt = "Review the current code changes for quality, security, and best practices.";
   if (base) {
     prompt = `Review the changes compared to ${base}. Focus on quality, security, and best practices.`;
@@ -152,7 +319,10 @@ async function cmdReview(args) {
   }
 }
 
-async function cmdRescue(args) {
+async function cmdRescue(argv) {
+  ensureAvailabilityOrExit(process.cwd());
+
+  const args = argv;
   const background = args.includes("--background");
   const wait = args.includes("--wait");
   const modelIdx = args.indexOf("--model");
@@ -251,7 +421,6 @@ function cmdStatus(args) {
 function cmdResult(args) {
   const jobId = args[0];
   if (!jobId) {
-    // Show latest
     const jobs = listJobs();
     const latest = jobs.find(j => j.status === "completed");
     if (!latest) {
@@ -320,7 +489,7 @@ const [,, command, ...args] = process.argv;
 
 switch (command) {
   case "setup":
-    await cmdSetup();
+    await cmdSetup(args);
     break;
   case "review":
     await cmdReview(args);
@@ -342,7 +511,7 @@ switch (command) {
     console.log("Usage: mimo-companion.mjs <command> [args]");
     console.log("");
     console.log("Commands:");
-    console.log("  setup                  Check MiMo availability");
+    console.log("  setup [--json]         Check MiMo availability");
     console.log("  review [--background]  Run code review");
     console.log("  rescue [task]          Delegate task to MiMo");
     console.log("  status [job-id]        Show job status");
