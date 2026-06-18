@@ -1,0 +1,34 @@
+{
+  "name": "mimo",
+  "version": "0.1.0",
+  "description": "Use MiMo Code from Codex to review code or delegate tasks. Provides code review, task delegation, and background job management through MiMo CLI.",
+  "author": {
+    "name": "Xiaomi MiMo"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mimo",
+    "code-review",
+    "task-delegation",
+    "ai-agent",
+    "xiaomi"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "MiMo",
+    "shortDescription": "Delegate tasks and code reviews to MiMo",
+    "longDescription": "MiMo Code integration for Codex. Run code reviews, delegate investigation and fix tasks, manage background jobs — all through MiMo CLI.",
+    "developerName": "Xiaomi MiMo",
+    "category": "Engineering",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Review my code changes",
+      "Investigate why tests are failing",
+      "Fix the build error"
+    ],
+    "brandColor": "#FF6B00"
+  }
+}

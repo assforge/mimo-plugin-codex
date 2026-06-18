@@ -1,0 +1,8 @@
+{
+  "name": "mimo-plugin-codex",
+  "version": "0.1.0",
+  "description": "MiMo Code plugin for Codex",
+  "private": true,
+  "license": "MIT",
+  "author": "Xiaomi MiMo"
+}
