@@ -202,24 +202,26 @@ function runMimo(args, opts = {}) {
   if (opts.background) {
     // Background: capture stdout/stderr to a log file, wait for close to
     // resolve so the caller knows when the process actually finishes.
+    // Do NOT use detached/unref — the parent must stay alive to receive the
+    // close event and write the final job status.  "Background" here means
+    // the caller's own process is fire-and-forget from the USER's perspective
+    // (the shell prompt returns immediately while the companion waits).
     const logFile = path.join(JOB_DIR, `${opts.jobId ?? "bg"}-mimo.log`);
     ensureJobDir();
     const logFd = fs.openSync(logFile, "a");
     const child = spawn("mimo", args, {
       stdio: ["ignore", logFd, logFd],
-      detached: true,
       ...opts,
     });
-    child.unref();
     return new Promise((resolve) => {
       child.on("close", (code) => {
-        fs.closeSync(logFd);
+        try { fs.closeSync(logFd); } catch {}
         let output = "";
         try { output = fs.readFileSync(logFile, "utf-8"); } catch {}
         resolve({ background: true, pid: child.pid, code, output, logFile });
       });
       child.on("error", () => {
-        fs.closeSync(logFd);
+        try { fs.closeSync(logFd); } catch {}
         resolve({ background: true, pid: child.pid, code: 1, output: "", logFile });
       });
     });
