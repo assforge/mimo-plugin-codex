@@ -1,8 +1,21 @@
 {
-  "name": "mimo-plugin-codex",
+  "name": "@assforge/mimo-plugin-codex",
   "version": "0.1.0",
-  "description": "MiMo Code plugin for Codex",
-  "private": true,
+  "description": "MiMo Code plugin for Codex — delegate tasks, code reviews, and background work to MiMo (Xiaomi). Based on openai/codex-plugin-cc.",
   "license": "MIT",
-  "author": "Xiaomi MiMo"
+  "author": "Xiaomi MiMo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/assforge/mimo-plugin-codex.git"
+  },
+  "homepage": "https://github.com/assforge/mimo-plugin-codex",
+  "bugs": {
+    "url": "https://github.com/assforge/mimo-plugin-codex/issues"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }
