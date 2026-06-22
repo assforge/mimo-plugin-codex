@@ -1,6 +1,6 @@
 {
   "name": "@assforge/mimo-plugin-codex",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "MiMo Code plugin for Codex — delegate tasks, code reviews, and background work to MiMo (Xiaomi). Based on openai/codex-plugin-cc.",
   "license": "MIT",
   "author": "Xiaomi MiMo",
