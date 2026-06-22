@@ -1,6 +1,6 @@
 {
   "name": "mimo",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Use MiMo Code from Codex to review code or delegate tasks. Provides code review, task delegation, and background job management through MiMo CLI.",
   "author": {
     "name": "Xiaomi MiMo"
