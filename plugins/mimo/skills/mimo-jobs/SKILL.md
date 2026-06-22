@@ -18,7 +18,11 @@ Manage MiMo background jobs.
 ### Check Status
 
 ```bash
-node "<plugin-root>/scripts/mimo-companion.mjs" status [job-id] [--all] [--json]
+PLUGIN_ROOT="${CODEX_PLUGIN_ROOT:-}"
+if [ -z "$PLUGIN_ROOT" ]; then
+  PLUGIN_ROOT="$(ls -dt "$HOME/.codex/plugins/cache/mimo-code/mimo"/* 2>/dev/null | head -1)"
+fi
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" status [job-id] [--all] [--json]
 ```
 
 Shows running and recent jobs. Use `--all` to show more jobs, `--json` for structured output.
@@ -26,7 +30,7 @@ Shows running and recent jobs. Use `--all` to show more jobs, `--json` for struc
 ### Get Result
 
 ```bash
-node "<plugin-root>/scripts/mimo-companion.mjs" result [job-id] [--json]
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" result [job-id] [--json]
 ```
 
 Shows the final output for a completed job. Without a job-id, shows the latest completed job.
@@ -34,7 +38,7 @@ Shows the final output for a completed job. Without a job-id, shows the latest c
 ### Cancel Job
 
 ```bash
-node "<plugin-root>/scripts/mimo-companion.mjs" cancel <job-id>
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" cancel <job-id>
 ```
 
 Cancels an active background job.
@@ -43,16 +47,16 @@ Cancels an active background job.
 
 ```bash
 # Show recent jobs
-node "<plugin-root>/scripts/mimo-companion.mjs" status
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" status
 
 # Show specific job
-node "<plugin-root>/scripts/mimo-companion.mjs" status task-abc123
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" status task-abc123
 
 # Get latest result
-node "<plugin-root>/scripts/mimo-companion.mjs" result
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" result
 
 # Cancel a job
-node "<plugin-root>/scripts/mimo-companion.mjs" cancel task-abc123
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" cancel task-abc123
 ```
 
 ## Output
