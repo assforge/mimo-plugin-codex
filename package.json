@@ -12,10 +12,17 @@
   "bugs": {
     "url": "https://github.com/assforge/mimo-plugin-codex/issues"
   },
+  "scripts": {
+    "version": "changeset version && node scripts/sync-plugin-version.mjs && npm install --package-lock-only --ignore-scripts",
+    "release": "changeset publish"
+  },
   "engines": {
     "node": ">=18.18.0"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0"
   }
 }

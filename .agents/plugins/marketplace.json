@@ -1,21 +1,20 @@
 {
   "name": "mimo-code",
-  "owner": {
-    "name": "Xiaomi MiMo"
-  },
-  "metadata": {
-    "description": "MiMo Code plugin for Codex — delegate tasks, code reviews, and background work to MiMo.",
-    "version": "0.1.0"
+  "interface": {
+    "displayName": "MiMo Code"
   },
   "plugins": [
     {
       "name": "mimo",
-      "description": "Use MiMo Code from Codex to review code or delegate tasks.",
-      "version": "0.1.0",
-      "author": {
-        "name": "Xiaomi MiMo"
+      "source": {
+        "source": "local",
+        "path": "./plugins/mimo"
       },
-      "source": "./plugins/mimo"
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Engineering"
     }
   ]
 }

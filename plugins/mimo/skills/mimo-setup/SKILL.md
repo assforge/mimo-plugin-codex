@@ -19,7 +19,11 @@ Check MiMo CLI availability and authentication status.
 Execute the companion script with the `setup` command:
 
 ```bash
-node "<plugin-root>/scripts/mimo-companion.mjs" setup
+PLUGIN_ROOT="${CODEX_PLUGIN_ROOT:-}"
+if [ -z "$PLUGIN_ROOT" ]; then
+  PLUGIN_ROOT="$(ls -dt "$HOME/.codex/plugins/cache/mimo-code/mimo"/* 2>/dev/null | head -1)"
+fi
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" setup
 ```
 
 ## Output

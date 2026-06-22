@@ -18,7 +18,11 @@ Run a MiMo review through the companion script.
 Execute the companion script with the `review` command:
 
 ```bash
-node "<plugin-root>/scripts/mimo-companion.mjs" review [arguments]
+PLUGIN_ROOT="${CODEX_PLUGIN_ROOT:-}"
+if [ -z "$PLUGIN_ROOT" ]; then
+  PLUGIN_ROOT="$(ls -dt "$HOME/.codex/plugins/cache/mimo-code/mimo"/* 2>/dev/null | head -1)"
+fi
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" review [arguments]
 ```
 
 ### Arguments
@@ -33,13 +37,13 @@ node "<plugin-root>/scripts/mimo-companion.mjs" review [arguments]
 
 ```bash
 # Review working tree changes
-node "<plugin-root>/scripts/mimo-companion.mjs" review
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" review
 
 # Review against main branch
-node "<plugin-root>/scripts/mimo-companion.mjs" review --base main
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" review --base main
 
 # Review against a specific commit
-node "<plugin-root>/scripts/mimo-companion.mjs" review --base abc1234
+node "$PLUGIN_ROOT/scripts/mimo-companion.mjs" review --base abc1234
 ```
 
 ## Output
