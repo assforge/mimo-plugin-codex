@@ -263,7 +263,7 @@ function runMimo(args, opts = {}) {
 
   // Foreground: capture to memory.
   return new Promise((resolve, reject) => {
-    const child = spawn("mimo", args, { stdio: "pipe", ...opts });
+    const child = spawn("mimo", args, { stdio: ["ignore", "pipe", "pipe"], ...opts });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
@@ -274,7 +274,7 @@ function runMimo(args, opts = {}) {
       // retry from a safe directory so mimo's git scan doesn't block us.
       else if (stderr.includes("EACCES")) {
         const safeArgs = args.map(a => a === opts.cwd ? SAFE_CWD : a);
-        const child2 = spawn("mimo", safeArgs, { stdio: "pipe", cwd: SAFE_CWD });
+        const child2 = spawn("mimo", safeArgs, { stdio: ["ignore", "pipe", "pipe"], cwd: SAFE_CWD });
         let stdout2 = "";
         let stderr2 = "";
         child2.stdout.on("data", (d) => (stdout2 += d));
@@ -360,7 +360,7 @@ async function cmdReview(argv) {
 
   if (background) {
     writeJobFile(jobId, job);
-    const mimoArgs = ["run", "--dir", process.cwd(), prompt];
+    const mimoArgs = ["run", "--dangerously-skip-permissions", "--dir", process.cwd(), prompt];
     runMimo(mimoArgs, { background: true, jobId }).then(({ pid, code, output, logFile }) => {
       job.pid = pid;
       job.logFile = logFile;
@@ -381,7 +381,7 @@ async function cmdReview(argv) {
   } else {
     console.log("🔍 Running MiMo review...");
     try {
-      const result = await runMimo(["run", "--dir", process.cwd(), prompt]);
+      const result = await runMimo(["run", "--dangerously-skip-permissions", "--dir", process.cwd(), prompt]);
       console.log(result.stdout);
     } catch (err) {
       console.error(err.message);
@@ -420,7 +420,7 @@ async function cmdRescue(argv) {
   writeJobFile(jobId, job);
 
   const cwd = process.cwd();
-  const mimoArgs = ["run", "--dir", cwd];
+  const mimoArgs = ["run", "--dangerously-skip-permissions", "--dir", cwd];
   if (model) mimoArgs.push("--model", model);
   mimoArgs.push(taskText);
 
